@@ -1,0 +1,6 @@
+{
+  "name": "EventFlow — Real-Time Event Scheduling System",
+  "description": "B.Tech CSE Data Structures & Algorithms micro-project featuring Event Scheduling, Venue Conflict Detection, CO3 Search & Sort, CO4 Binary Search Tree Visualizer, CO5 Graph Explorer, and an Automated Self-Test Suite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
