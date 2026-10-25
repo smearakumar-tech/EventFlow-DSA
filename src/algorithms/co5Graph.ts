@@ -29,6 +29,8 @@ export class EventGraph {
     this.adjacencyList.clear();
     this.edges = [];
 
+    if (!events || events.length === 0) return;
+
     // Register vertices
     for (const ev of events) {
       this.vertices.set(ev.id, ev);
@@ -37,13 +39,7 @@ export class EventGraph {
 
     const eventList = Array.from(this.vertices.values());
 
-    // 1. Meaningful Sequence & Prerequisite Dependencies:
-    // 101 (Inaugural) -> 102 (AI Keynote)
-    // 101 -> 103 (Cloud Workshop)
-    // 105 (Hackathon Round 1) -> 110 (Hackathon Finale)
-    // 106 (CTF) -> 107 (Algorithms Lecture)
-    // 110 (Finale) -> 112 (Valedictory)
-    // 108 (Cultural) -> 112 (Valedictory)
+    // 1. Explicit Prerequisite Dependencies (if IDs exist in current dataset)
     const explicitDependencies: Array<[number, number, string]> = [
       [101, 102, 'Opening Keynote precedes Main Lectures'],
       [101, 103, 'Inaugural opening unlocks parallel tracks'],
@@ -61,29 +57,39 @@ export class EventGraph {
       }
     }
 
-    // 2. Add Shared Venue edges for same venue on same date
+    // 2. Dynamic Meaningful Relationships for ALL events (Shared Venue, Category, Organizer, or Same Date)
     for (let i = 0; i < eventList.length; i++) {
       for (let j = i + 1; j < eventList.length; j++) {
         const a = eventList[i];
         const b = eventList[j];
+
+        if (a.id === b.id) continue;
+
         if (a.venue === b.venue && a.date === b.date) {
-          // Avoid duplicate edge if already connected
-          const alreadyConnected = this.adjacencyList.get(a.id)?.some(e => e.targetId === b.id);
-          if (!alreadyConnected) {
-            this.addEdge(a.id, b.id, 'Shared Venue', `Same Venue: ${a.venue}`);
-          }
+          this.addEdge(a.id, b.id, 'Shared Venue', `Same Venue: ${a.venue}`);
+        } else if (a.category && b.category && a.category.toLowerCase() === b.category.toLowerCase()) {
+          this.addEdge(a.id, b.id, 'Track Dependency', `Same Category: ${a.category}`);
+        } else if (a.organizer && b.organizer && a.organizer.toLowerCase() === b.organizer.toLowerCase()) {
+          this.addEdge(a.id, b.id, 'Track Dependency', `Same Organizer: ${a.organizer}`);
+        } else if (a.date === b.date) {
+          this.addEdge(a.id, b.id, 'Prerequisite', `Same Day Schedule: ${a.date}`);
         }
       }
     }
   }
 
   addEdge(sourceId: number, targetId: number, type: GraphEdgeItem['type'], label: string) {
-    // Directed graph representation (for prerequisites) with symmetric presence for shared venues
-    this.adjacencyList.get(sourceId)?.push({ targetId, type, label });
-    this.edges.push({ sourceId, targetId, type, label });
+    if (sourceId === targetId) return; // avoid self-loops
 
-    if (type === 'Shared Venue') {
-      this.adjacencyList.get(targetId)?.push({ targetId: sourceId, type, label });
+    const listA = this.adjacencyList.get(sourceId);
+    if (listA && !listA.some(e => e.targetId === targetId && e.type === type)) {
+      listA.push({ targetId, type, label });
+      this.edges.push({ sourceId, targetId, type, label });
+    }
+
+    const listB = this.adjacencyList.get(targetId);
+    if (listB && !listB.some(e => e.targetId === sourceId && e.type === type)) {
+      listB.push({ targetId: sourceId, type, label });
       this.edges.push({ sourceId: targetId, targetId: sourceId, type, label });
     }
   }
@@ -119,7 +125,6 @@ export class EventGraph {
       traversalOrder.push(current);
 
       const neighbors = this.adjacencyList.get(current) || [];
-      const unvisitedNeighbors = neighbors.filter(n => !visited.has(n.targetId));
 
       steps.push({
         stepNumber: steps.length + 1,

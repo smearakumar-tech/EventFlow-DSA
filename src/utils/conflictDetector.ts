@@ -101,3 +101,66 @@ export function checkEventHasConflict(candidate: EventItem, allEvents: EventItem
   }
   return matches;
 }
+
+/**
+ * Finds alternative venues for an event on the same date and time that are strictly verified to be free.
+ */
+export function findAvailableAlternativeVenues(
+  targetEvent: EventItem,
+  allEvents: EventItem[],
+  candidateVenues: string[]
+): string[] {
+  const available: string[] = [];
+  for (const venue of candidateVenues) {
+    if (venue.trim().toLowerCase() === targetEvent.venue.trim().toLowerCase()) continue;
+    const candidate: EventItem = { ...targetEvent, venue };
+    const conflicts = checkEventHasConflict(candidate, allEvents);
+    if (conflicts.length === 0) {
+      available.push(venue);
+    }
+  }
+  return available;
+}
+
+/**
+ * Finds verified available time slots on the same date and venue for an event.
+ * Tries slots immediately after conflicting event, and subsequent 30-min offsets.
+ */
+export function findAvailableShiftSlots(
+  targetEvent: EventItem,
+  conflictingEvent: EventItem,
+  allEvents: EventItem[]
+): Array<{ startTime: string; endTime: string }> {
+  const durationMin = timeToMinutes(targetEvent.endTime) - timeToMinutes(targetEvent.startTime);
+  const confEndMin = timeToMinutes(conflictingEvent.endTime);
+  const availableSlots: Array<{ startTime: string; endTime: string }> = [];
+
+  // Try slot right after conflicting event (with a 15 min buffer)
+  const candidateStarts = [
+    confEndMin,
+    confEndMin + 15,
+    confEndMin + 30,
+    confEndMin + 60,
+    timeToMinutes(conflictingEvent.startTime) - durationMin - 15
+  ];
+
+  for (const startMin of candidateStarts) {
+    if (startMin < 8 * 60 || startMin + durationMin > 23 * 60) continue; // between 08:00 and 23:00
+    const startStr = minutesToTime(startMin);
+    const endStr = minutesToTime(startMin + durationMin);
+
+    const testEvent: EventItem = {
+      ...targetEvent,
+      startTime: startStr,
+      endTime: endStr
+    };
+
+    const conflicts = checkEventHasConflict(testEvent, allEvents);
+    if (conflicts.length === 0) {
+      availableSlots.push({ startTime: startStr, endTime: endStr });
+      if (availableSlots.length >= 2) break;
+    }
+  }
+
+  return availableSlots;
+}

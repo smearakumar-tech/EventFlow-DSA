@@ -1,7 +1,68 @@
-import { EventItem } from '../types/event';
+import { EventItem, ActivityLogItem, ActivityActionType } from '../types/event';
 import { SAMPLE_EVENTS } from './sampleData';
 
 const STORAGE_KEY = 'eventflow_scheduled_events_v2';
+const STORAGE_KEY_ACTIVITY = 'eventflow_activity_history_v1';
+
+export function loadActivityHistory(): ActivityLogItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ACTIVITY);
+    if (!raw) {
+      const initialLogs: ActivityLogItem[] = [
+        {
+          id: 'log-init-1',
+          action: 'CREATE',
+          timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+          details: 'Initialized EventFlow symposium schedule with sample dataset'
+        }
+      ];
+      saveActivityHistory(initialLogs);
+      return initialLogs;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to load activity history:', err);
+    return [];
+  }
+}
+
+export function saveActivityHistory(logs: ActivityLogItem[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_ACTIVITY, JSON.stringify(logs.slice(0, 100))); // keep latest 100 entries
+  } catch (err) {
+    console.error('Failed to save activity history:', err);
+  }
+}
+
+export function recordActivity(
+  action: ActivityActionType,
+  details: string,
+  eventId?: number,
+  eventTitle?: string
+): ActivityLogItem[] {
+  const current = loadActivityHistory();
+  const newLog: ActivityLogItem = {
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    action,
+    eventId,
+    eventTitle,
+    timestamp: new Date().toISOString(),
+    details
+  };
+  const updated = [newLog, ...current];
+  saveActivityHistory(updated);
+  return updated;
+}
+
+export function clearActivityHistory(): ActivityLogItem[] {
+  try {
+    localStorage.removeItem(STORAGE_KEY_ACTIVITY);
+  } catch (err) {
+    console.error('Failed to clear activity history:', err);
+  }
+  return [];
+}
 
 export function loadEventsFromStorage(): EventItem[] {
   try {

@@ -25,7 +25,9 @@ import { timeToMinutes } from '../utils/conflictDetector';
 interface EventsViewProps {
   events: EventItem[];
   conflicts: VenueConflictPair[];
-  onOpenNewEvent: () => void;
+  initialViewMode?: 'table' | 'calendar';
+  onNavigateTab?: (tab: any) => void;
+  onOpenNewEvent: (prefillDate?: string, prefillVenue?: string) => void;
   onEditEvent: (event: EventItem) => void;
   onDeleteEvent: (event: EventItem) => void;
 }
@@ -33,11 +35,22 @@ interface EventsViewProps {
 export const EventsView: React.FC<EventsViewProps> = ({
   events,
   conflicts,
+  initialViewMode = 'table',
+  onNavigateTab,
   onOpenNewEvent,
   onEditEvent,
   onDeleteEvent
 }) => {
-  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>(initialViewMode);
+  const [calendarSubView, setCalendarSubView] = useState<'month' | 'week' | 'day'>('month');
+
+  // Sync when initialViewMode prop changes from navigation
+  React.useEffect(() => {
+    if (initialViewMode) {
+      setViewMode(initialViewMode);
+    }
+  }, [initialViewMode]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [venueFilter, setVenueFilter] = useState<string>('ALL');
@@ -48,9 +61,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [sortField, setSortField] = useState<keyof EventItem>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Calendar month state (defaults to October 2026 based on symposium schedule)
-  const [calendarYear, setCalendarYear] = useState(2026);
-  const [calendarMonth, setCalendarMonth] = useState(9); // 0-indexed: 9 = October
+  // Anchor date for calendar navigation (defaulting to symposium Oct 26, 2026 or today)
+  const [anchorDate, setAnchorDate] = useState<Date>(() => new Date(2026, 9, 26));
+
+  // Calendar month state
+  const calendarYear = anchorDate.getFullYear();
+  const calendarMonth = anchorDate.getMonth();
 
   // Detailed event inspection modal
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
@@ -152,23 +168,88 @@ export const EventsView: React.FC<EventsViewProps> = ({
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  const handlePrevMonth = () => {
-    if (calendarMonth === 0) {
-      setCalendarMonth(11);
-      setCalendarYear(y => y - 1);
-    } else {
-      setCalendarMonth(m => m - 1);
-    }
+  const handlePrev = () => {
+    setAnchorDate(prev => {
+      const d = new Date(prev);
+      if (calendarSubView === 'month') {
+        d.setMonth(d.getMonth() - 1);
+      } else if (calendarSubView === 'week') {
+        d.setDate(d.getDate() - 7);
+      } else {
+        d.setDate(d.getDate() - 1);
+      }
+      return d;
+    });
   };
 
-  const handleNextMonth = () => {
-    if (calendarMonth === 11) {
-      setCalendarMonth(0);
-      setCalendarYear(y => y + 1);
-    } else {
-      setCalendarMonth(m => m + 1);
-    }
+  const handleNext = () => {
+    setAnchorDate(prev => {
+      const d = new Date(prev);
+      if (calendarSubView === 'month') {
+        d.setMonth(d.getMonth() + 1);
+      } else if (calendarSubView === 'week') {
+        d.setDate(d.getDate() + 7);
+      } else {
+        d.setDate(d.getDate() + 1);
+      }
+      return d;
+    });
   };
+
+  const weekDays = useMemo(() => {
+    const curr = new Date(anchorDate);
+    const dayOfWeek = curr.getDay(); // 0 = Sun
+    const startOfWeek = new Date(curr);
+    startOfWeek.setDate(curr.getDate() - dayOfWeek);
+
+    const days: Array<{
+      date: Date;
+      dateString: string;
+      dayName: string;
+      dayNumber: number;
+      events: EventItem[];
+    }> = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(startOfWeek);
+      d.setDate(startOfWeek.getDate() + i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      const dateString = `${y}-${m}-${dayStr}`;
+      const matched = events
+        .filter(e => e.date === dateString)
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+      days.push({
+        date: d,
+        dateString,
+        dayName: dayNames[i],
+        dayNumber: d.getDate(),
+        events: matched
+      });
+    }
+    return days;
+  }, [anchorDate, events]);
+
+  const selectedDayData = useMemo(() => {
+    const y = anchorDate.getFullYear();
+    const m = String(anchorDate.getMonth() + 1).padStart(2, '0');
+    const d = String(anchorDate.getDate()).padStart(2, '0');
+    const dateString = `${y}-${m}-${d}`;
+    return {
+      dateString,
+      formatted: anchorDate.toLocaleDateString(undefined, {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }),
+      events: events
+        .filter(e => e.date === dateString)
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+    };
+  }, [anchorDate, events]);
 
   const categoryStyles: Record<string, { bg: string; text: string; dot: string }> = {
     Technical: { bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-700', dot: 'bg-indigo-500' },
@@ -231,7 +312,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </div>
 
           <button
-            onClick={onOpenNewEvent}
+            onClick={() => onOpenNewEvent()}
             className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs md:text-sm font-semibold flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
           >
             <Plus className="w-4 h-4" />
@@ -515,118 +596,398 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </div>
         </div>
       ) : (
-        /* Calendar View */
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs p-5">
-          {/* Calendar Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-indigo-600" />
-              <h3 className="text-base font-bold text-slate-900">
-                {monthNames[calendarMonth]} {calendarYear}
-              </h3>
+        /* Calendar View (Month / Week / Day) */
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs p-5 space-y-4">
+          {/* Calendar Top Control Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            {/* Title & View Label */}
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                <CalendarIcon className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  {calendarSubView === 'month' && `${monthNames[calendarMonth]} ${calendarYear}`}
+                  {calendarSubView === 'week' && `Week of ${weekDays[0].dayName} ${weekDays[0].dayNumber} – ${weekDays[6].dayName} ${weekDays[6].dayNumber}, ${calendarYear}`}
+                  {calendarSubView === 'day' && selectedDayData.formatted}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {calendarSubView === 'month' && 'Monthly symposium calendar overview'}
+                  {calendarSubView === 'week' && '7-day multi-column weekly schedule'}
+                  {calendarSubView === 'day' && 'Detailed single-day agenda'}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-              <button
-                onClick={handlePrevMonth}
-                className="p-1 text-slate-600 hover:text-slate-900 rounded-md hover:bg-white transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => {
-                  setCalendarYear(2026);
-                  setCalendarMonth(9);
-                }}
-                className="px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-white rounded-md transition-colors"
-              >
-                Symposium (Oct 2026)
-              </button>
-              <button
-                onClick={handleNextMonth}
-                className="p-1 text-slate-600 hover:text-slate-900 rounded-md hover:bg-white transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+
+            {/* Sub-view Switcher & Jump Navigation */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Month / Week / Day selector */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
+                <button
+                  onClick={() => setCalendarSubView('month')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    calendarSubView === 'month'
+                      ? 'bg-white text-indigo-700 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Month
+                </button>
+                <button
+                  onClick={() => setCalendarSubView('week')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    calendarSubView === 'week'
+                      ? 'bg-white text-indigo-700 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Week
+                </button>
+                <button
+                  onClick={() => setCalendarSubView('day')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    calendarSubView === 'day'
+                      ? 'bg-white text-indigo-700 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Day
+                </button>
+              </div>
+
+              {/* Prev / Today / Next Controls */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                <button
+                  onClick={handlePrev}
+                  title="Previous period"
+                  className="p-1 text-slate-600 hover:text-slate-900 rounded-md hover:bg-white transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setAnchorDate(new Date())}
+                  className="px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-white rounded-md transition-colors"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => setAnchorDate(new Date(2026, 9, 26))}
+                  className="px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:bg-white rounded-md transition-colors hidden sm:inline"
+                >
+                  Symposium
+                </button>
+                <button
+                  onClick={handleNext}
+                  title="Next period"
+                  className="p-1 text-slate-600 hover:text-slate-900 rounded-md hover:bg-white transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Days of Week */}
-          <div className="grid grid-cols-7 gap-2 mb-2 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <span>Sun</span>
-            <span>Mon</span>
-            <span>Tue</span>
-            <span>Wed</span>
-            <span>Thu</span>
-            <span>Fri</span>
-            <span>Sat</span>
-          </div>
+          {/* Month Subview */}
+          {calendarSubView === 'month' && (
+            <div>
+              <div className="grid grid-cols-7 gap-2 mb-2 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">
+                <span>Sun</span>
+                <span>Mon</span>
+                <span>Tue</span>
+                <span>Wed</span>
+                <span>Thu</span>
+                <span>Fri</span>
+                <span>Sat</span>
+              </div>
 
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 gap-2">
-            {calendarDays.map((cell, idx) => {
-              if (cell.dayNumber === 0) {
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((cell, idx) => {
+                  if (cell.dayNumber === 0) {
+                    return (
+                      <div
+                        key={`empty-${idx}`}
+                        className="min-h-[105px] bg-slate-50/50 rounded-xl border border-slate-100"
+                      />
+                    );
+                  }
+
+                  const hasConflict = cell.events.some(e =>
+                    conflicts.some(c => c.eventA.id === e.id || c.eventB.id === e.id)
+                  );
+
+                  return (
+                    <div
+                      key={`day-${cell.dayNumber}`}
+                      className={`min-h-[110px] p-2 rounded-xl border transition-all flex flex-col justify-between ${
+                        cell.events.length > 0
+                          ? 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                          : 'bg-white/60 border-slate-100'
+                      } ${hasConflict ? 'border-amber-300 bg-amber-50/20' : ''}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => {
+                            setAnchorDate(new Date(calendarYear, calendarMonth, cell.dayNumber));
+                            setCalendarSubView('day');
+                          }}
+                          className={`text-xs font-extrabold px-1.5 py-0.5 rounded-md hover:ring-2 hover:ring-indigo-400 transition-all ${
+                            cell.events.length > 0
+                              ? 'bg-slate-900 text-white'
+                              : 'text-slate-400 hover:text-slate-700'
+                          }`}
+                          title="Click to view single day agenda"
+                        >
+                          {cell.dayNumber}
+                        </button>
+                        {cell.events.length > 0 && (
+                          <span className="text-[10px] font-mono text-slate-500 font-bold">
+                            {cell.events.length} ev
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Day Events Stack */}
+                      <div className="mt-1.5 space-y-1 flex-1 overflow-y-auto max-h-[85px]">
+                        {cell.events.map(ev => {
+                          const isConflicted = conflicts.some(
+                            c => c.eventA.id === ev.id || c.eventB.id === ev.id
+                          );
+                          return (
+                            <div
+                              key={ev.id}
+                              onClick={() => setSelectedEvent(ev)}
+                              className={`text-[10px] font-semibold px-1.5 py-1 rounded border truncate cursor-pointer transition-transform hover:scale-[1.02] ${
+                                isConflicted
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                  : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                              }`}
+                              title={`${ev.title} (${ev.startTime}-${ev.endTime} @ ${ev.venue})`}
+                            >
+                              <span className="font-mono">#{ev.id}</span> {ev.title}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Week Subview */}
+          {calendarSubView === 'week' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              {weekDays.map(col => {
+                const isSelectedAnchor = col.dateString === selectedDayData.dateString;
                 return (
                   <div
-                    key={`empty-${idx}`}
-                    className="min-h-[100px] bg-slate-50/50 rounded-lg border border-slate-100"
-                  />
-                );
-              }
+                    key={col.dateString}
+                    className={`rounded-xl border p-3 flex flex-col min-h-[300px] transition-all ${
+                      isSelectedAnchor
+                        ? 'bg-indigo-50/30 border-indigo-300 shadow-xs'
+                        : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
+                      <div>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                          {col.dayName}
+                        </span>
+                        <span className="text-base font-extrabold text-slate-900">
+                          {col.dayNumber}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => onOpenNewEvent(col.dateString)}
+                        title={`Schedule event on ${col.dateString}`}
+                        className="p-1 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-md transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
 
-              const hasConflict = cell.events.some(e =>
-                conflicts.some(c => c.eventA.id === e.id || c.eventB.id === e.id)
-              );
-
-              return (
-                <div
-                  key={`day-${cell.dayNumber}`}
-                  className={`min-h-[110px] p-2 rounded-xl border transition-all flex flex-col justify-between ${
-                    cell.events.length > 0
-                      ? 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
-                      : 'bg-white/60 border-slate-100'
-                  } ${hasConflict ? 'border-amber-300 bg-amber-50/20' : ''}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`text-xs font-extrabold px-1.5 py-0.5 rounded-md ${
-                        cell.events.length > 0
-                          ? 'bg-slate-900 text-white'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {cell.dayNumber}
-                    </span>
-                    {cell.events.length > 0 && (
-                      <span className="text-[10px] font-mono text-slate-500 font-bold">
-                        {cell.events.length} ev
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Day Events Stack */}
-                  <div className="mt-1.5 space-y-1 flex-1 overflow-y-auto max-h-[85px]">
-                    {cell.events.map(ev => {
-                      const isConflicted = conflicts.some(c => c.eventA.id === ev.id || c.eventB.id === ev.id);
-                      return (
-                        <div
-                          key={ev.id}
-                          onClick={() => setSelectedEvent(ev)}
-                          className={`text-[10px] font-semibold px-1.5 py-1 rounded border truncate cursor-pointer transition-transform hover:scale-[1.02] ${
-                            isConflicted
-                              ? 'bg-amber-100 text-amber-900 border-amber-300'
-                              : 'bg-indigo-50 text-indigo-800 border-indigo-200'
-                          }`}
-                          title={`${ev.title} (${ev.startTime}-${ev.endTime} @ ${ev.venue})`}
-                        >
-                          <span className="font-mono">#{ev.id}</span> {ev.title}
+                    <div className="flex-1 space-y-2 overflow-y-auto max-h-[360px]">
+                      {col.events.length === 0 ? (
+                        <div className="text-center py-8 text-slate-300 text-[11px]">
+                          No events scheduled
                         </div>
-                      );
-                    })}
+                      ) : (
+                        col.events.map(ev => {
+                          const isConflicted = conflicts.some(
+                            c => c.eventA.id === ev.id || c.eventB.id === ev.id
+                          );
+                          return (
+                            <div
+                              key={ev.id}
+                              onClick={() => setSelectedEvent(ev)}
+                              className={`p-2 rounded-lg border text-xs cursor-pointer hover:shadow-2xs transition-all ${
+                                isConflicted
+                                  ? 'bg-amber-50 border-amber-300 text-amber-950'
+                                  : 'bg-slate-50 hover:bg-indigo-50/50 border-slate-200 text-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                                <span className="font-mono font-bold text-indigo-600">
+                                  #{ev.id}
+                                </span>
+                                <span className="font-medium">{ev.startTime}</span>
+                              </div>
+                              <div className="font-bold truncate text-[11px]">{ev.title}</div>
+                              <div className="text-[10px] text-slate-500 truncate flex items-center gap-1 mt-1">
+                                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                <span>{ev.venue}</span>
+                              </div>
+                              {isConflicted && (
+                                <div className="mt-1 flex items-center gap-1 text-[9px] font-bold text-red-600">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>Venue Conflict</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Day Subview */}
+          {calendarSubView === 'day' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Day Agenda: {selectedDayData.formatted}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {selectedDayData.events.length} event
+                    {selectedDayData.events.length !== 1 ? 's' : ''} scheduled on this date
+                  </p>
+                </div>
+                <button
+                  onClick={() => onOpenNewEvent(selectedDayData.dateString)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Event on this Day</span>
+                </button>
+              </div>
+
+              {selectedDayData.events.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-200 p-6">
+                  <CalendarIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <h5 className="text-sm font-bold text-slate-700">No Events for this Date</h5>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    There are no scheduled sessions on {selectedDayData.formatted}. You can create a new session or browse the symposium week.
+                  </p>
+                  <div className="mt-4 flex items-center justify-center gap-2">
+                    <button
+                      onClick={() => onOpenNewEvent(selectedDayData.dateString)}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 shadow-xs"
+                    >
+                      Schedule Event
+                    </button>
+                    <button
+                      onClick={() => setAnchorDate(new Date(2026, 9, 26))}
+                      className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-200"
+                    >
+                      Jump to Symposium Day 1
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                <div className="space-y-3">
+                  {selectedDayData.events.map(ev => {
+                    const isConflicted = conflicts.some(
+                      c => c.eventA.id === ev.id || c.eventB.id === ev.id
+                    );
+                    const style = categoryStyles[ev.category] || {
+                      bg: 'bg-slate-50 border-slate-200',
+                      text: 'text-slate-700',
+                      dot: 'bg-slate-500'
+                    };
+
+                    return (
+                      <div
+                        key={ev.id}
+                        className={`p-4 rounded-xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                          isConflicted
+                            ? 'bg-amber-50/40 border-amber-300'
+                            : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="px-2.5 py-1.5 bg-slate-900 text-white rounded-lg text-center font-mono shrink-0">
+                            <span className="text-[10px] text-slate-400 block font-normal">START</span>
+                            <span className="text-xs font-bold">{ev.startTime}</span>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono font-bold text-indigo-600">
+                                #{ev.id}
+                              </span>
+                              <h5 className="text-sm font-bold text-slate-900">{ev.title}</h5>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${style.bg} ${style.text}`}
+                              >
+                                {ev.category}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-600">
+                              <span className="flex items-center gap-1 font-mono text-[11px]">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                {ev.startTime} – {ev.endTime}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-slate-400" />
+                                {ev.venue}
+                              </span>
+                              <span className="text-slate-400">|</span>
+                              <span>Organizer: {ev.organizer}</span>
+                            </div>
+
+                            {isConflicted && (
+                              <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 bg-amber-100/80 px-2.5 py-0.5 rounded border border-amber-300">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Double-booked in {ev.venue}! Check Venue Conflicts tab.</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 self-end md:self-center">
+                          <button
+                            onClick={() => setSelectedEvent(ev)}
+                            className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors"
+                          >
+                            Details
+                          </button>
+                          <button
+                            onClick={() => onEditEvent(ev)}
+                            className="px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => onDeleteEvent(ev)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

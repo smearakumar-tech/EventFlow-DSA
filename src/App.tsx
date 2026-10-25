@@ -1,48 +1,108 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { EventItem, VenueConflictPair } from './types/event';
+import { EventItem, VenueConflictPair, ActivityLogItem } from './types/event';
 import {
   loadEventsFromStorage,
   saveEventsToStorage,
   resetEventsStorage,
   exportEventsToCSV,
-  exportEventsToJSON
+  exportEventsToJSON,
+  loadActivityHistory,
+  recordActivity,
+  clearActivityHistory
 } from './utils/storage';
+import { ensureDemoConflict } from './utils/sampleData';
 import { detectAllConflicts } from './utils/conflictDetector';
 import { Sidebar, ActiveTab } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { EventsView } from './components/EventsView';
+import { VenuesView } from './components/VenuesView';
 import { ConflictsView } from './components/ConflictsView';
 import { CO3SearchSortView } from './components/CO3SearchSortView';
 import { CO4BSTView } from './components/CO4BSTView';
 import { CO5GraphView } from './components/CO5GraphView';
 import { AcademicManualView } from './components/AcademicManualView';
-import { SelfTestView } from './components/SelfTestView';
+import { LoginPage } from './components/LoginPage';
+import { SignUpPage } from './components/SignUpPage';
+import { UserProfile } from './types/auth';
+import { loadUserSession, saveUserSession, clearUserSession } from './utils/authStorage';
 import { EventModal } from './components/EventModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { Toast, ToastMessage } from './components/Toast';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { ActivityHistoryModal } from './components/ActivityHistoryModal';
+import { PrintReportModal } from './components/PrintReportModal';
 
 export default function App() {
   // ---------------- State ----------------
   const [events, setEvents] = useState<EventItem[]>(() => loadEventsFromStorage());
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => loadUserSession());
+  const [activityLogs, setActivityLogs] = useState<ActivityLogItem[]>(() => loadActivityHistory());
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const session = loadUserSession();
+    return session ? 'dashboard' : 'login';
+  });
 
   // Modals & Dialogs
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null>(null);
   const [modalDefaultDate, setModalDefaultDate] = useState<string | undefined>(undefined);
+  const [modalDefaultVenue, setModalDefaultVenue] = useState<string | undefined>(undefined);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isDemoConflictConfirmOpen, setIsDemoConflictConfirmOpen] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const handleOpenNewEvent = (prefillDate?: string) => {
+  // SaaS Production Feature Modals
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
+  const handleOpenNewEvent = (prefillDate?: string, prefillVenue?: string) => {
     setEventToEdit(null);
     setModalDefaultDate(prefillDate);
+    setModalDefaultVenue(prefillVenue);
     setIsEventModalOpen(true);
   };
 
-  // Test suite stats
-  const [testStats, setTestStats] = useState({ passed: 6, total: 6 });
+  // Auth Handlers
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    saveUserSession(user);
+    recordActivity('UPDATE', `Organizer signed in: ${user.name} (${user.email})`);
+    setActivityLogs(loadActivityHistory());
+    addToast('success', `Welcome back, ${user.name}!`);
+    setActiveTab('dashboard');
+  };
+
+  const handleSignUpSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    saveUserSession(user);
+    recordActivity('CREATE', `New account created: ${user.name} (${user.email})`);
+    setActivityLogs(loadActivityHistory());
+    addToast('success', `Account created successfully. Welcome, ${user.name}!`);
+    setActiveTab('dashboard');
+  };
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleSignOut = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    if (currentUser) {
+      recordActivity('UPDATE', `Organizer signed out: ${currentUser.name}`);
+      setActivityLogs(loadActivityHistory());
+    }
+    setTimeout(() => {
+      clearUserSession();
+      setCurrentUser(null);
+      setIsLoggingOut(false);
+      addToast('success', 'You have been signed out successfully.');
+      setActiveTab('login');
+    }, 450);
+  };
+
+
 
   // Toast notifications
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -76,17 +136,22 @@ export default function App() {
       let updated: EventItem[];
       if (exists) {
         updated = prev.map(e => (e.id === savedEvent.id ? savedEvent : e));
+        recordActivity('UPDATE', `Updated event #${savedEvent.id}: "${savedEvent.title}"`, savedEvent.id);
         addToast('success', `Event #${savedEvent.id} updated successfully.`);
       } else {
         updated = [...prev, savedEvent];
+        recordActivity('CREATE', `Created new event #${savedEvent.id}: "${savedEvent.title}" in ${savedEvent.venue}`, savedEvent.id);
         addToast('success', `Event #${savedEvent.id} created successfully.`);
       }
 
-      // Check if newly introduced conflict
+      // Check if newly introduced or resolved conflict
       const newConflicts = detectAllConflicts(updated);
       if (newConflicts.length > conflicts.length) {
         addToast('warning', `Notice: Schedule changes introduced a venue conflict!`);
+      } else if (conflicts.length > 0 && newConflicts.length < conflicts.length) {
+        recordActivity('CONFLICT_RESOLVED', `Resolved venue collision for event #${savedEvent.id} (${savedEvent.venue})`, savedEvent.id);
       }
+      setActivityLogs(loadActivityHistory());
 
       return updated;
     });
@@ -95,16 +160,36 @@ export default function App() {
   const handleConfirmDelete = () => {
     if (!eventToDelete) return;
     const deletedId = eventToDelete.id;
+    const deletedTitle = eventToDelete.title;
+    recordActivity('DELETE', `Deleted event #${deletedId}: "${deletedTitle}"`, deletedId);
     setEvents(prev => prev.filter(e => e.id !== deletedId));
+    setActivityLogs(loadActivityHistory());
     setEventToDelete(null);
     addToast('info', `Event #${deletedId} has been deleted.`);
   };
 
   const handleResetData = () => {
     const fresh = resetEventsStorage();
+    recordActivity('RESET', 'Reset all schedule records to original 12-event symposium dataset');
     setEvents(fresh);
+    setActivityLogs(loadActivityHistory());
     setIsResetConfirmOpen(false);
     addToast('success', 'Reset complete: Original symposium schedule restored.');
+  };
+
+  const handleConfirmLoadDemoConflict = () => {
+    const { updated, message } = ensureDemoConflict(events);
+    setEvents(updated);
+    recordActivity('UPDATE', message, 104);
+    setActivityLogs(loadActivityHistory());
+    setIsDemoConflictConfirmOpen(false);
+    addToast('warning', message);
+  };
+
+  const handleClearActivityHistory = () => {
+    clearActivityHistory();
+    setActivityLogs([]);
+    addToast('info', 'Local activity history has been cleared.');
   };
 
   const handleExportCSV = () => {
@@ -117,6 +202,28 @@ export default function App() {
     addToast('info', 'Schedule exported as JSON.');
   };
 
+  // Ensure unauthenticated visitors default to login
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen w-full bg-slate-900 text-slate-100 flex flex-col justify-center items-center">
+        {activeTab === 'signup' ? (
+          <SignUpPage
+            onSignUpSuccess={handleSignUpSuccess}
+            onNavigateToLogin={() => setActiveTab('login')}
+            onNavigateToDashboard={() => setActiveTab('login')}
+          />
+        ) : (
+          <LoginPage
+            onLoginSuccess={handleLoginSuccess}
+            onNavigateToSignUp={() => setActiveTab('signup')}
+            onNavigateToDashboard={() => setActiveTab('login')}
+          />
+        )}
+        <Toast toasts={toasts} onDismiss={removeToast} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Deep Navy Desktop Sidebar */}
@@ -126,10 +233,12 @@ export default function App() {
           setActiveTab={setActiveTab}
           conflictCount={conflicts.length}
           totalEvents={events.length}
+          currentUser={currentUser}
+          onSignOut={handleSignOut}
           onOpenResetConfirm={() => setIsResetConfirmOpen(true)}
+          onLoadDemoConflict={() => setIsDemoConflictConfirmOpen(true)}
           onExportCSV={handleExportCSV}
           onExportJSON={handleExportJSON}
-          testPassRatio={`${testStats.passed}/${testStats.total}`}
         />
       </div>
 
@@ -151,13 +260,18 @@ export default function App() {
               }}
               conflictCount={conflicts.length}
               totalEvents={events.length}
+              currentUser={currentUser}
+              onSignOut={handleSignOut}
               onOpenResetConfirm={() => {
                 setIsResetConfirmOpen(true);
                 setMobileSidebarOpen(false);
               }}
+              onLoadDemoConflict={() => {
+                setIsDemoConflictConfirmOpen(true);
+                setMobileSidebarOpen(false);
+              }}
               onExportCSV={handleExportCSV}
               onExportJSON={handleExportJSON}
-              testPassRatio={`${testStats.passed}/${testStats.total}`}
             />
           </div>
         </div>
@@ -169,12 +283,16 @@ export default function App() {
         <Header
           activeTab={activeTab}
           conflictCount={conflicts.length}
+          currentUser={currentUser}
+          onNavigateLogin={() => setActiveTab('login')}
+          onNavigateSignUp={() => setActiveTab('signup')}
+          onSignOut={handleSignOut}
           onOpenNewEvent={() => handleOpenNewEvent()}
-          onOpenSelfTest={() => setActiveTab('tests')}
           onNavigateConflicts={() => setActiveTab('conflicts')}
           onToggleMobileSidebar={() => setMobileSidebarOpen(prev => !prev)}
-          testPassCount={testStats.passed}
-          totalTestsCount={testStats.total}
+          onOpenSearch={() => setIsSearchModalOpen(true)}
+          onOpenPrintReport={() => setIsPrintModalOpen(true)}
+          onOpenActivityHistory={() => setIsActivityModalOpen(true)}
         />
 
         {/* Scrollable Workspace Container */}
@@ -185,6 +303,7 @@ export default function App() {
               conflicts={conflicts}
               onNavigateTab={setActiveTab}
               onOpenNewEvent={handleOpenNewEvent}
+              onOpenSearch={() => setIsSearchModalOpen(true)}
               onSelectEvent={ev => {
                 setEventToEdit(ev);
                 setIsEventModalOpen(true);
@@ -196,12 +315,42 @@ export default function App() {
             <EventsView
               events={events}
               conflicts={conflicts}
-              onOpenNewEvent={() => handleOpenNewEvent()}
+              initialViewMode="table"
+              onNavigateTab={setActiveTab}
+              onOpenNewEvent={(date, venue) => handleOpenNewEvent(date, venue)}
               onEditEvent={ev => {
                 setEventToEdit(ev);
                 setIsEventModalOpen(true);
               }}
               onDeleteEvent={ev => setEventToDelete(ev)}
+            />
+          )}
+
+          {activeTab === 'calendar' && (
+            <EventsView
+              events={events}
+              conflicts={conflicts}
+              initialViewMode="calendar"
+              onNavigateTab={setActiveTab}
+              onOpenNewEvent={(date, venue) => handleOpenNewEvent(date, venue)}
+              onEditEvent={ev => {
+                setEventToEdit(ev);
+                setIsEventModalOpen(true);
+              }}
+              onDeleteEvent={ev => setEventToDelete(ev)}
+            />
+          )}
+
+          {activeTab === 'venues' && (
+            <VenuesView
+              events={events}
+              conflicts={conflicts}
+              onOpenNewEvent={(date, venue) => handleOpenNewEvent(date, venue)}
+              onSelectEvent={ev => {
+                setEventToEdit(ev);
+                setIsEventModalOpen(true);
+              }}
+              onNavigateConflicts={() => setActiveTab('conflicts')}
             />
           )}
 
@@ -214,6 +363,7 @@ export default function App() {
                 setEventToEdit(ev);
                 setIsEventModalOpen(true);
               }}
+              onLoadDemoConflict={() => setIsDemoConflictConfirmOpen(true)}
             />
           )}
 
@@ -225,9 +375,21 @@ export default function App() {
 
           {activeTab === 'manual' && <AcademicManualView />}
 
-          {activeTab === 'tests' && (
-            <SelfTestView
-              onTestsCompleted={(passed, total) => setTestStats({ passed, total })}
+
+
+          {activeTab === 'login' && (
+            <LoginPage
+              onLoginSuccess={handleLoginSuccess}
+              onNavigateToSignUp={() => setActiveTab('signup')}
+              onNavigateToDashboard={() => setActiveTab('dashboard')}
+            />
+          )}
+
+          {activeTab === 'signup' && (
+            <SignUpPage
+              onSignUpSuccess={handleSignUpSuccess}
+              onNavigateToLogin={() => setActiveTab('login')}
+              onNavigateToDashboard={() => setActiveTab('dashboard')}
             />
           )}
         </main>
@@ -239,11 +401,13 @@ export default function App() {
         eventToEdit={eventToEdit}
         allEvents={events}
         defaultDate={modalDefaultDate}
+        defaultVenue={modalDefaultVenue}
         onSave={handleSaveEvent}
         onClose={() => {
           setIsEventModalOpen(false);
           setEventToEdit(null);
           setModalDefaultDate(undefined);
+          setModalDefaultVenue(undefined);
         }}
       />
 
@@ -267,6 +431,50 @@ export default function App() {
         isDestructive={true}
         onConfirm={handleResetData}
         onCancel={() => setIsResetConfirmOpen(false)}
+      />
+
+      {/* Demo Conflict Confirmation Modal */}
+      <ConfirmModal
+        isOpen={isDemoConflictConfirmOpen}
+        title="Load Demonstration Venue Conflict?"
+        message="This will restore the intentional schedule collision in Auditorium A (Event #102 vs #104 with 60-minute overlap) so you can demonstrate interval collision detection and verified automated resolution. Your other scheduled records are safely preserved."
+        confirmLabel="Load Demo Conflict"
+        isDestructive={false}
+        onConfirm={handleConfirmLoadDemoConflict}
+        onCancel={() => setIsDemoConflictConfirmOpen(false)}
+      />
+
+      {/* Global Search Modal */}
+      <GlobalSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        events={events}
+        conflicts={conflicts}
+        onSelectEvent={ev => {
+          setIsSearchModalOpen(false);
+          setEventToEdit(ev);
+          setIsEventModalOpen(true);
+        }}
+        onNavigateConflicts={() => {
+          setIsSearchModalOpen(false);
+          setActiveTab('conflicts');
+        }}
+      />
+
+      {/* Activity History Modal */}
+      <ActivityHistoryModal
+        isOpen={isActivityModalOpen}
+        onClose={() => setIsActivityModalOpen(false)}
+        logs={activityLogs}
+        onClearHistory={handleClearActivityHistory}
+      />
+
+      {/* Print-Friendly Schedule Report Modal */}
+      <PrintReportModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        events={events}
+        conflicts={conflicts}
       />
 
       {/* Floating Toast Notifications */}

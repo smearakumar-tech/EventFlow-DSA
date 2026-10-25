@@ -9,6 +9,7 @@ interface EventModalProps {
   eventToEdit: EventItem | null;
   allEvents: EventItem[];
   defaultDate?: string;
+  defaultVenue?: string;
   onSave: (event: EventItem) => void;
   onClose: () => void;
 }
@@ -18,6 +19,7 @@ export const EventModal: React.FC<EventModalProps> = ({
   eventToEdit,
   allEvents,
   defaultDate,
+  defaultVenue,
   onSave,
   onClose
 }) => {
@@ -27,7 +29,7 @@ export const EventModal: React.FC<EventModalProps> = ({
     date: defaultDate || new Date().toISOString().slice(0, 10),
     startTime: '10:00',
     endTime: '12:00',
-    venue: VENUE_LIST[0],
+    venue: defaultVenue || VENUE_LIST[0],
     category: 'Technical',
     organizer: '',
     priority: 'Medium',
@@ -50,7 +52,7 @@ export const EventModal: React.FC<EventModalProps> = ({
         date: defaultDate || new Date().toISOString().slice(0, 10),
         startTime: '10:00',
         endTime: '12:00',
-        venue: VENUE_LIST[0],
+        venue: defaultVenue || VENUE_LIST[0],
         category: 'Technical',
         organizer: 'Dept. of Computer Science & Engg',
         priority: 'Medium',
@@ -59,7 +61,7 @@ export const EventModal: React.FC<EventModalProps> = ({
       });
     }
     setErrors({});
-  }, [eventToEdit, isOpen, allEvents, defaultDate]);
+  }, [eventToEdit, isOpen, allEvents, defaultDate, defaultVenue]);
 
   if (!isOpen) return null;
 

@@ -98,3 +98,38 @@ export interface TestCaseResult {
   details: string;
   error?: string;
 }
+
+export type ActivityActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'CONFLICT_RESOLVED' | 'RESET';
+
+export interface ActivityLogItem {
+  id: string;
+  action: ActivityActionType;
+  eventId?: number;
+  eventTitle?: string;
+  timestamp: string; // ISO string
+  details: string;
+}
+
+export interface ConflictResolutionSuggestion {
+  type: 'SHIFT_TIME' | 'REASSIGN_VENUE';
+  eventId: number;
+  eventTitle: string;
+  description: string;
+  proposedChanges: Partial<EventItem>;
+  isVerifiedAvailable: boolean;
+}
+
+export interface ScheduleAnalytics {
+  totalEvents: number;
+  upcomingCount: number;
+  ongoingCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  totalScheduledHours: number;
+  averageDurationMinutes: number;
+  busiestDay: { date: string; formattedDate: string; count: number; totalMinutes: number } | null;
+  mostUsedVenue: { venue: string; count: number; totalMinutes: number } | null;
+  categoryDistribution: Array<{ category: EventCategory; count: number; percentage: number; totalHours: number }>;
+  venueUtilization: Array<{ venue: string; count: number; bookedMinutes: number; bookedHours: string; percentage: number; hasConflict: boolean }>;
+  peakHour: { hourLabel: string; count: number } | null;
+}

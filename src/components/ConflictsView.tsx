@@ -9,10 +9,17 @@ import {
   ShieldCheck,
   RefreshCw,
   Edit2,
-  MoveRight
+  MoveRight,
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { EventItem, VenueConflictPair } from '../types/event';
-import { timeToMinutes, minutesToTime } from '../utils/conflictDetector';
+import {
+  timeToMinutes,
+  minutesToTime,
+  findAvailableAlternativeVenues,
+  findAvailableShiftSlots
+} from '../utils/conflictDetector';
 import { VENUE_LIST } from '../utils/sampleData';
 
 interface ConflictsViewProps {
@@ -20,38 +27,32 @@ interface ConflictsViewProps {
   allEvents: EventItem[];
   onUpdateEvent: (updated: EventItem) => void;
   onEditEvent: (event: EventItem) => void;
+  onLoadDemoConflict?: () => void;
 }
 
 export const ConflictsView: React.FC<ConflictsViewProps> = ({
   conflicts,
   allEvents,
   onUpdateEvent,
-  onEditEvent
+  onEditEvent,
+  onLoadDemoConflict
 }) => {
-  // Quick resolution: Shift event B end and start by overlapMinutes or 60 min
-  const handleShiftEventB = (conflict: VenueConflictPair) => {
-    const shiftMinutes = Math.max(30, conflict.overlapMinutes);
-    const origStartMin = timeToMinutes(conflict.eventB.startTime);
-    const origEndMin = timeToMinutes(conflict.eventB.endTime);
-    const duration = origEndMin - origStartMin;
-
-    const newStartMin = timeToMinutes(conflict.eventA.endTime) + 15; // 15 min buffer after event A
-    const newEndMin = newStartMin + duration;
-
+  const handleApplyVenueChange = (targetEvent: EventItem, newVenue: string) => {
     const updated: EventItem = {
-      ...conflict.eventB,
-      startTime: minutesToTime(newStartMin),
-      endTime: minutesToTime(newEndMin)
+      ...targetEvent,
+      venue: newVenue
     };
     onUpdateEvent(updated);
   };
 
-  // Quick resolution: Reassign event B to alternate venue
-  const handleReassignVenue = (conflict: VenueConflictPair) => {
-    const alternate = VENUE_LIST.find(v => v !== conflict.venue) || 'Tech Lab 102';
+  const handleApplySlotShift = (
+    targetEvent: EventItem,
+    slot: { startTime: string; endTime: string }
+  ) => {
     const updated: EventItem = {
-      ...conflict.eventB,
-      venue: alternate
+      ...targetEvent,
+      startTime: slot.startTime,
+      endTime: slot.endTime
     };
     onUpdateEvent(updated);
   };
@@ -97,6 +98,18 @@ export const ConflictsView: React.FC<ConflictsViewProps> = ({
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>Optimal Schedule Validation Invariant Satisfied</span>
           </div>
+
+          {onLoadDemoConflict && (
+            <div className="mt-5 pt-4 border-t border-emerald-200/60">
+              <button
+                onClick={onLoadDemoConflict}
+                className="px-4 py-2 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-semibold rounded-xl border border-emerald-300 shadow-2xs transition-colors inline-flex items-center gap-2"
+              >
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>Load Demo Conflict for Demonstration</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -266,30 +279,119 @@ export const ConflictsView: React.FC<ConflictsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Root-Cause Explanation & One-Click Recommendations */}
-                  <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div className="text-xs text-slate-700 max-w-xl">
-                      <span className="font-bold text-slate-900 block mb-0.5">Automated Resolution Advisor:</span>
-                      {c.explanation}
-                    </div>
+                  {/* Verified Resolution Advisor */}
+                  {(() => {
+                    const verifiedVenues = findAvailableAlternativeVenues(
+                      c.eventB,
+                      allEvents,
+                      VENUE_LIST
+                    );
+                    const verifiedSlots = findAvailableShiftSlots(
+                      c.eventB,
+                      c.eventA,
+                      allEvents
+                    );
 
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleShiftEventB(c)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 hover:border-indigo-500 hover:text-indigo-600 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                        Shift Time After #{c.eventA.id}
-                      </button>
-                      <button
-                        onClick={() => handleReassignVenue(c)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
-                      >
-                        <MapPin className="w-3.5 h-3.5" />
-                        Reassign Venue
-                      </button>
-                    </div>
-                  </div>
+                    return (
+                      <div className="mt-5 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/80">
+                          <div>
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Verified Availability Resolution Advisor</span>
+                              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-300">
+                                0-Conflict Verified
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5">
+                              {c.explanation}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Verified Solutions Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                          {/* Option 1: Verified Alternate Venues */}
+                          <div className="p-3 bg-white rounded-lg border border-slate-200/90 shadow-2xs">
+                            <span className="text-[11px] font-bold text-slate-800 block mb-1.5 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-teal-600" />
+                              Move Colliding Event #{c.eventB.id} to Verified Free Venue:
+                            </span>
+                            {verifiedVenues.length === 0 ? (
+                              <p className="text-[11px] text-slate-500 italic">
+                                No alternative halls free during this exact interval ({c.eventB.startTime}–{c.eventB.endTime}).
+                              </p>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {verifiedVenues.slice(0, 3).map(venue => (
+                                  <button
+                                    key={venue}
+                                    onClick={() => handleApplyVenueChange(c.eventB, venue)}
+                                    title={`Reassign to ${venue} (confirmed available)`}
+                                    className="px-2.5 py-1 text-xs font-semibold bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-md transition-colors flex items-center gap-1 shadow-2xs"
+                                  >
+                                    <Check className="w-3 h-3 text-teal-600" />
+                                    <span>Move to {venue}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Option 2: Verified Open Time Slots */}
+                          <div className="p-3 bg-white rounded-lg border border-slate-200/90 shadow-2xs">
+                            <span className="text-[11px] font-bold text-slate-800 block mb-1.5 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-indigo-600" />
+                              Shift Event #{c.eventB.id} to Verified Open Slot in {c.venue}:
+                            </span>
+                            {verifiedSlots.length === 0 ? (
+                              <p className="text-[11px] text-slate-500 italic">
+                                No consecutive open windows detected in {c.venue} today for this event duration.
+                              </p>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {verifiedSlots.map((slot, sIdx) => (
+                                  <button
+                                    key={sIdx}
+                                    onClick={() => handleApplySlotShift(c.eventB, slot)}
+                                    title={`Shift time to ${slot.startTime} - ${slot.endTime} in ${c.venue}`}
+                                    className="px-2.5 py-1 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md transition-colors flex items-center gap-1 shadow-2xs"
+                                  >
+                                    <Check className="w-3 h-3 text-indigo-600" />
+                                    <span>
+                                      Shift to {slot.startTime}–{slot.endTime}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fallback & Custom Actions */}
+                        <div className="pt-1 flex items-center justify-between text-xs text-slate-500">
+                          <span className="text-[11px]">
+                            All suggestions are tested through <code className="font-mono text-slate-700">checkEventHasConflict()</code> before presentation.
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => onEditEvent(c.eventA)}
+                              className="text-xs text-slate-600 hover:text-indigo-600 font-semibold"
+                            >
+                              Edit #{c.eventA.id}
+                            </button>
+                            <span>•</span>
+                            <button
+                              onClick={() => onEditEvent(c.eventB)}
+                              className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
+                            >
+                              Edit #{c.eventB.id}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );

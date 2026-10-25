@@ -230,3 +230,47 @@ export const CATEGORY_LIST = [
   'Academic',
   'Sports'
 ] as const;
+
+/**
+ * Safely ensures the intentional demonstration conflict exists in the event list.
+ * Modifies event #104 to collide with event #102 on Auditorium A, 2026-10-26 (10:30–12:30 vs 09:30–11:30).
+ * If either event is missing, it adds them safely without modifying any other user events.
+ */
+export function ensureDemoConflict(currentEvents: EventItem[]): { updated: EventItem[]; message: string } {
+  let updatedList = [...currentEvents];
+  const event102 = updatedList.find(e => e.id === 102);
+  const event104 = updatedList.find(e => e.id === 104);
+
+  if (event102 && event104) {
+    // Both exist: re-align #104 to create the intentional 60-min overlap with #102
+    updatedList = updatedList.map(e => {
+      if (e.id === 104) {
+        return {
+          ...e,
+          venue: event102.venue,
+          date: event102.date,
+          startTime: '10:30',
+          endTime: '12:30',
+          status: 'Upcoming' as const
+        };
+      }
+      return e;
+    });
+    return {
+      updated: updatedList,
+      message: `Demonstration conflict loaded between Event #102 ("${event102.title}") and Event #104 ("${event104.title}") in ${event102.venue} on ${event102.date}.`
+    };
+  }
+
+  // If one or both are missing, restore the sample conflict pair
+  const default102 = SAMPLE_EVENTS.find(e => e.id === 102)!;
+  const default104 = SAMPLE_EVENTS.find(e => e.id === 104)!;
+
+  if (!event102) updatedList.push(default102);
+  if (!event104) updatedList.push(default104);
+
+  return {
+    updated: updatedList,
+    message: 'Demonstration conflict restored in Auditorium A (60-minute interval overlap between #102 and #104).'
+  };
+}

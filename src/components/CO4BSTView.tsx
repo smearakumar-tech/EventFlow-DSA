@@ -179,10 +179,10 @@ export const CO4BSTView: React.FC<CO4BSTViewProps> = ({ events }) => {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900">
-                CO4: Binary Search Tree (BST) Visualizer
+                Tree Explorer &amp; Hierarchical Model
               </h3>
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Hierarchical Data Structure
+                Binary Search Tree
               </span>
             </div>
             <p className="text-xs text-slate-600 mt-1 leading-relaxed">

@@ -17,16 +17,16 @@ export const AcademicManualView: React.FC = () => {
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-200">
       {/* Header Profile Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 shadow-xl border border-indigo-900/40">
-        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 text-xs font-semibold border border-teal-400/30 w-fit mb-3">
-          <GraduationCap className="w-4 h-4" />
-          <span>Department of Computer Science &amp; Engineering • Micro-Project Report</span>
+        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-400/30 w-fit mb-3">
+          <BookOpen className="w-4 h-4 text-teal-300" />
+          <span>Technical Architecture &amp; Academic Evaluation Reference</span>
         </div>
         <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-          EventFlow — Academic Lab Manual &amp; Course Outcomes
+          EventFlow — Documentation &amp; Specifications
         </h1>
         <p className="text-slate-300 text-xs md:text-sm mt-2 leading-relaxed">
-          Course Outcome (CO) mapping, algorithmic proofs, time and space complexity matrices,
-          and data structure invariant specifications for academic laboratory evaluation.
+          System architecture, algorithm complexity analysis, interval collision proofs, and complete
+          Course Outcome (CO3, CO4, CO5) mapping to support faculty evaluation.
         </p>
       </div>
 

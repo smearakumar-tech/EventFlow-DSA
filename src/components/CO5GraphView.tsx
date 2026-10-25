@@ -5,15 +5,11 @@ import {
   RotateCcw,
   SkipForward,
   Pause,
-  Layers,
-  ArrowRight,
   Sparkles,
-  Info,
-  CheckCircle2,
-  Grid
+  Calendar
 } from 'lucide-react';
 import { EventItem, GraphTraversalStep } from '../types/event';
-import { EventGraph, GraphNodeLayout, GraphEdgeItem } from '../algorithms/co5Graph';
+import { EventGraph, GraphNodeLayout } from '../algorithms/co5Graph';
 
 interface CO5GraphViewProps {
   events: EventItem[];
@@ -36,6 +32,13 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Sync startNodeId when events change
+  useEffect(() => {
+    if (events.length > 0 && !events.some(e => e.id === startNodeId)) {
+      setStartNodeId(events[0].id);
+    }
+  }, [events, startNodeId]);
+
   // Compute 2D node layout
   const graphWidth = 840;
   const graphHeight = 520;
@@ -54,6 +57,13 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
     setIsPlaying(false);
     if (timerRef.current) clearInterval(timerRef.current);
 
+    if (events.length === 0) {
+      setTraversalSteps([]);
+      setTraversalOrder([]);
+      setCurrentStepIdx(0);
+      return;
+    }
+
     if (algo === 'bfs') {
       const res = graph.runBFS(startId);
       setTraversalSteps(res.steps);
@@ -70,7 +80,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
   // Initial trigger
   useEffect(() => {
     prepareTraversal(traversalAlgo, startNodeId);
-  }, [traversalAlgo, startNodeId, graph]);
+  }, [traversalAlgo, startNodeId, graph, events]);
 
   // Playback timer
   useEffect(() => {
@@ -100,6 +110,22 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
   // Adjacency Matrix
   const { matrix, nodeIds } = useMemo(() => graph.getAdjacencyMatrix(), [graph]);
 
+  if (events.length === 0) {
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto py-12">
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4 shadow-sm">
+          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto">
+            <Network className="w-6 h-6" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900">No Events Found in Network</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            The Event Network graph requires event records to construct vertices and relational edges. Create your first event using the &quot;New Event&quot; button to explore BFS and DFS graph traversals.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Top Banner */}
@@ -110,7 +136,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-base font-bold text-slate-900">
-              CO5: Non-Linear Graph Modeling &amp; Traversal Lab
+              Event Network &amp; Relationship Graph
             </h3>
             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
               G = (V, E)
@@ -118,9 +144,8 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
           </div>
           <p className="text-xs text-slate-600 mt-1 leading-relaxed">
             In EventFlow, symposium events are modeled as <strong>Vertices (V)</strong>.
-            Directed edges represent <strong>Chronological Prerequisite Pipelines</strong> (e.g., Opening Keynote $\to$ Workshop tracks),
-            while bidirectional edges represent <strong>Shared Venue Transitions</strong>.
-            Traversing this topology enables dependency analysis and multi-track coordination in $O(V + E)$ time.
+            Edges represent relational connections (Shared Venues, Categories, Organizers, and Schedules).
+            Traversing this topology enables dependency analysis in O(V + E) time.
           </p>
         </div>
       </div>
@@ -152,7 +177,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                DFS (Stack LIFO / Recursion)
+                DFS (Stack LIFO)
               </button>
             </div>
 
@@ -273,7 +298,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
               <span className="w-3 h-0.5 bg-indigo-500 inline-block" /> Prerequisite
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-3 h-0.5 bg-teal-500 inline-block" /> Shared Venue
+              <span className="w-3 h-0.5 bg-teal-500 inline-block" /> Shared Venue / Category
             </span>
           </div>
         </div>
@@ -284,7 +309,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
             className="w-full max-w-4xl h-auto select-none"
           >
             <defs>
-              {/* Arrowhead marker for directed prerequisite edges */}
               <marker
                 id="arrowhead-prereq"
                 markerWidth="8"
@@ -331,7 +355,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                   strokeWidth={isCurrentEdge ? '3.5' : isPrereq ? '2' : '1.5'}
                   strokeDasharray={edge.type === 'Shared Venue' ? '4 3' : 'none'}
                   opacity={isCurrentEdge ? 1 : 0.65}
-                  markerEnd={isPrereq ? (isCurrentEdge ? 'url(#arrowhead-active)' : 'url(#arrowhead-prereq)') : undefined}
                 />
               );
             })}
@@ -351,7 +374,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     prepareTraversal(traversalAlgo, node.id);
                   }}
                 >
-                  {/* Outer pulse for current active vertex */}
                   {isCurrent && (
                     <circle
                       cx={node.x}
@@ -364,7 +386,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     />
                   )}
 
-                  {/* Node Circle */}
                   <circle
                     cx={node.x}
                     cy={node.y}
@@ -375,7 +396,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     className="shadow-md hover:scale-115 transition-transform"
                   />
 
-                  {/* Vertex Key */}
                   <text
                     x={node.x}
                     y={node.y + 4}
@@ -388,7 +408,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     {node.id}
                   </text>
 
-                  {/* Label */}
                   <text
                     x={node.x}
                     y={node.y + 32}
@@ -400,7 +419,6 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                     {node.event.title.length > 16 ? `${node.event.title.slice(0, 14)}...` : node.event.title}
                   </text>
 
-                  {/* Venue Subtitle */}
                   <text
                     x={node.x}
                     y={node.y + 44}
@@ -462,6 +480,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
               {traversalOrder.map((id, index) => {
                 const isCurrent = currentStep?.currentNodeId === id;
                 const isVisited = visitedSet.has(id);
+                const evNode = graph.vertices.get(id);
                 return (
                   <div
                     key={`${id}-${index}`}
@@ -475,7 +494,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                   >
                     <span>#{id}</span>
                     <span className="text-[10px] text-slate-500 font-normal">
-                      ({graph.vertices.get(id)?.title.slice(0, 16)}...)
+                      ({evNode?.title ? `${evNode.title.slice(0, 16)}...` : 'Event'})
                     </span>
                   </div>
                 );
@@ -496,7 +515,7 @@ export const CO5GraphView: React.FC<CO5GraphViewProps> = ({ events }) => {
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {neighbors.length === 0 ? (
-                      <span className="text-slate-400">∅ (No outbound edges)</span>
+                      <span className="text-slate-400">∅ (Isolated node - No outbound edges)</span>
                     ) : (
                       neighbors.map((nb, i) => (
                         <span key={i} className="bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-800">
